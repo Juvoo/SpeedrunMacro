@@ -1,7 +1,6 @@
 import subprocess
 
 import psutil
-from subprocess import Popen
 
 
 instances = []
@@ -16,8 +15,6 @@ def switch_to_next_instance():
 
 
 def auto_detect_instances():
-    global instances
-    instances.clear()
     print("Detecting Minecraft instances...")
     for process in psutil.process_iter():
         try:
