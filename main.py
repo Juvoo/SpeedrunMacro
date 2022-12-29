@@ -1,13 +1,7 @@
-import time
-
-import pynput.mouse
+import time, pynput.mouse, subprocess, psutil
 
 from pynput import keyboard
 from pynput.keyboard import Key
-
-import subprocess
-
-import multi_instance
 
 
 keyboardController = pynput.keyboard.Controller()
@@ -21,6 +15,10 @@ vineSeed = "8398967436125155523"
 seed = taigaSeed
 
 multi_instance_enabled = True
+speak_info = False
+
+instances = []
+
 
 def press_key(key):
     keyboardController.press(key)
@@ -49,8 +47,13 @@ def type_string(string):
 
 
 def minecraft_window_focused():
-    p = subprocess.run(['osascript', '-e', 'tell application "System Events"', '-e', 'set windowTitle to name of (front window of (first application process whose frontmost is true))', '-e', 'copy windowTitle to stdout', '-e', 'end tell'], capture_output=True)
-    return "Minecraft" in p.stdout.__str__()
+    try:
+        focused_window_pid = subprocess.check_output(['osascript', '-e', 'tell application "System Events"', '-e', 'set pid to unix id of first application process whose frontmost is true', '-e', 'return pid', '-e', 'end tell'])
+        process = psutil.Process(int(filter(str.isdigit, focused_window_pid.__str__()).__str__()))
+        p = subprocess.check_output(['osascript', '-e', 'tell application "System Events"', '-e', 'set windowTitle to name of (front window of (first application process whose frontmost is true))', '-e', 'return windowTitle', '-e', 'end tell'])
+        return "Minecraft" in p.__str__()
+    except subprocess.CalledProcessError:
+        return False
 
 
 def execute_ssg():
@@ -76,8 +79,7 @@ def execute_ssg():
     press_key(Key.enter)
 
     if multi_instance_enabled:
-        multi_instance.switch_to_next_instance()
-
+        switch_to_next_instance()
 
 
 def execute_rsg():
@@ -96,7 +98,7 @@ def execute_rsg():
         press_key(Key.enter)
 
         if multi_instance_enabled:
-            multi_instance.switch_to_next_instance()
+            switch_to_next_instance()
 
 
 def execute_duo_rsg():
@@ -118,19 +120,76 @@ def execute_duo_rsg():
         press_key(Key.enter)
 
         if multi_instance_enabled:
-            multi_instance.switch_to_next_instance()
+            switch_to_next_instance()
+
 
 def execute_publish():
-    press_key('t')
-    time.sleep(0.1)
-    type_string('/publish 25565')
-    press_key(Key.enter)
+    if minecraft_window_focused():
+        press_key('t')
+        time.sleep(0.1)
+        type_string('/publish 25565')
+        press_key(Key.enter)
 
 
-if multi_instance_enabled:
-    multi_instance.auto_detect_instances()
+def switch_to_next_instance():
+    if instances.__len__() > 1:
+        next_instance = instances.__getitem__(0)
+        subprocess.run(['osascript', '-e', 'tell application "System Events" to set frontmost of first process whose unix id is ' + next_instance + ' to true'])
+        instances.remove(next_instance)
+        instances.append(next_instance)
 
-with keyboard.GlobalHotKeys({'t': execute_rsg
-                             ,
-                            ']': execute_publish}) as h:
+
+def auto_detect_instances():
+    instances.clear()
+    print("Detecting Minecraft instances...")
+    if speak_info:
+        subprocess.run(['say', 'Detecting Minecraft instances'])
+    for process in psutil.process_iter():
+        try:
+            if "minecraft" in process.open_files().__str__():
+                window_name = subprocess.check_output(['osascript', '-e', 'tell application "System Events"', '-e', 'set windowTitle to name of (front window of (first application process whose unix id is ' + process.pid.__str__() + '))', '-e', 'return windowTitle', '-e', 'end tell']).__str__()
+                if "minecraft" or "Minecraft" in window_name:
+                    instances.append(process.pid.__str__())
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+
+    num_instances = instances.__len__().__str__()
+    print("Found " + num_instances + " instance(s)")
+    for instance in instances:
+        print(instance)
+
+    if speak_info:
+        subprocess.run(['say', 'Found ' + num_instances + ' instances'])
+
+
+def get_focused_instance_pid():
+    if minecraft_window_focused():
+        try:
+            pid = subprocess.check_output(['osascript', '-e', 'tell application "System Events"', '-e', 'set pid to unix id of first application process whose frontmost is true', '-e', 'return pid', '-e', 'end tell'])
+            return pid
+        except subprocess.CalledProcessError:
+            return None
+    else:
+        return None
+
+
+def toggle_freeze_inactive_instances():
+    current_instance_pid = get_focused_instance_pid()
+    print(current_instance_pid)
+    for pid in instances:
+        if pid not in filter(str.isdigit, current_instance_pid.__str__()):
+            process = psutil.Process(int(pid))
+            status = process.status()
+            if 'stopped' in status:
+                process.resume()
+            else:
+                process.suspend()
+
+
+if __name__ == '__main__':
+    if multi_instance_enabled:
+        auto_detect_instances()
+
+
+with keyboard.GlobalHotKeys({'[': execute_rsg, ']': execute_publish, '.': auto_detect_instances, '=': toggle_freeze_inactive_instances}) as h:
     h.join()
